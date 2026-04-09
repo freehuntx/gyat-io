@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount, tick } from 'svelte';
-    import { decode } from '@msgpack/msgpack';
+    import { decode, encode } from '@msgpack/msgpack';
 
     type Message = {
         id: number;
@@ -17,6 +17,13 @@
 
     let ws1Status = 'connecting';
     let ws2Status = 'connecting';
+
+    let senderName = 'System';    
+    let selectedServer = 'Server1';    
+    let chatInput = '';
+
+    let ws1Global: WebSocket;
+    let ws2Global: WebSocket;
 
     async function addMessage(server: string, sender: string, text: string) {
         const isPrivate = text.indexOf(':') >= 0
@@ -93,6 +100,7 @@
             if (isUnmounted) return;
             ws1Status = 'connecting';
             ws1 = new WebSocket('wss://gyat.io/ws');
+            ws1Global = ws1;
             ws1.binaryType = 'arraybuffer';
             ws1.addEventListener('open', () => ws1Status = 'connected');
             ws1.addEventListener('close', () => {
@@ -109,6 +117,7 @@
             if (isUnmounted) return;
             ws2Status = 'connecting';
             ws2 = new WebSocket('wss://gyat.io/ws2');
+            ws2Global = ws2;
             ws2.binaryType = 'arraybuffer';
             ws2.addEventListener('open', () => ws2Status = 'connected');
             ws2.addEventListener('close', () => {
@@ -130,6 +139,34 @@
             if (ws2) ws2.close();
         };
     });
+
+    function sendChatMessage(serverType: string, sender: string, text: string) {
+        let wsTarget = serverType === 'Server1' ? ws1Global : ws2Global;
+        if (wsTarget && wsTarget.readyState === WebSocket.OPEN) {
+            wsTarget.send(new Uint8Array([21]));
+            wsTarget.send(new Uint8Array([13, ...encode({ Name: sender + '; ' + text + '\0' })]));
+            wsTarget.send(new Uint8Array([7, ...encode({ Text: ' ' })]));
+            wsTarget.send(new Uint8Array([17]));
+        } else {
+            console.warn(`Cannot send message. ${serverType} is not connected.`);
+        }
+    }
+
+    function handleSend() {
+        if (!chatInput.trim()) return;
+        
+        sendChatMessage(selectedServer, senderName || 'Unknown', chatInput);
+        addMessage(selectedServer, senderName || 'Unknown', chatInput);
+        
+        chatInput = '';
+    }
+
+    function handleKeydown(e: KeyboardEvent) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleSend();
+        }
+    }
 </script>
 
 <div class="chat-container">
@@ -165,6 +202,28 @@
         {#if messages.length === 0}
             <div class="empty">No messages yet...</div>
         {/if}
+    </div>
+    
+    <div class="chat-input-bar">
+        <select class="server-select" bind:value={selectedServer}>
+            <option value="Server1">Server1</option>
+            <option value="Server2">Server2</option>
+        </select>
+        <input 
+            type="text" 
+            class="sender-input" 
+            placeholder="Name" 
+            bind:value={senderName} 
+            maxlength="20"
+        />
+        <input 
+            type="text" 
+            class="message-input" 
+            placeholder="Type a message..." 
+            bind:value={chatInput} 
+            on:keydown={handleKeydown}
+        />
+        <button class="send-btn" on:click={handleSend}>Send</button>
     </div>
 </div>
 
@@ -299,5 +358,54 @@
         color: #888;
         font-style: italic;
         padding: 2rem;
+    }
+
+    .chat-input-bar {
+        display: flex;
+        padding: 1rem;
+        background: #f9f9f9;
+        border-top: 1px solid #e0e0e0;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    .server-select {
+        padding: 0.5rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 0.9em;
+        background-color: white;
+    }
+
+    .sender-input {
+        width: 100px;
+        padding: 0.5rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 0.9em;
+    }
+
+    .message-input {
+        flex-grow: 1;
+        padding: 0.5rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 0.9em;
+    }
+
+    .send-btn {
+        padding: 0.5rem 1rem;
+        background-color: #3498db;
+        border: none;
+        border-radius: 4px;
+        color: white;
+        font-size: 0.9em;
+        font-weight: bold;
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+
+    .send-btn:hover {
+        background-color: #2980b9;
     }
 </style>
